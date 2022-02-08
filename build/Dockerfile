@@ -4,7 +4,10 @@ FROM centos:centos8
 ARG RUN_SCRIPT_ARGS=
 ENV RUN_SCRIPT_ARGS=${RUN_SCRIPT_ARGS}
 
-ENV HOME /tmp
+ENV HOME /root
+
+RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Linux-* &&\
+    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Linux-*
 
 RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm &&\
     dnf install -y git python3 unzip chromium chromedriver &&\
@@ -16,7 +19,7 @@ WORKDIR $HOME/ods-ci
 
 COPY tests tests/
 COPY requirements.txt run_robot_test.sh setup.py .
-RUN python3 -m venv venv && source venv/bin/activate && venv/bin/pip3 install -r requirements.txt
+RUN python3 -m venv venv && source venv/bin/activate && venv/bin/pip3 install --upgrade pip && venv/bin/pip3 install -r requirements.txt
 
 # Set the group ownership so non-root users can write to /tmp
 RUN chgrp -R 0 /tmp && chmod -R g=u /tmp
