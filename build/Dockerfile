@@ -1,13 +1,13 @@
-FROM centos:centos8
+FROM quay.io/centos/centos:stream8
 
 # Use this build arg to set any default test script arguments
 ARG RUN_SCRIPT_ARGS=
 ENV RUN_SCRIPT_ARGS=${RUN_SCRIPT_ARGS}
 
-ENV HOME /root
+ENV HOME /tmp
 
-RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Linux-* &&\
-    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Linux-*
+#RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Linux-* &&\
+#    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Linux-*
 
 RUN dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm &&\
     dnf install -y git python3 unzip chromium chromedriver &&\
