@@ -6,3 +6,10 @@ ods_ci.egg-info/
 test-output/
 dist/
 drivers/**/chromedriver
+must-gather-results.txt
+.DS_Store
+.idea/
+Results/
+results/
+__pycache__/
+robocop.log

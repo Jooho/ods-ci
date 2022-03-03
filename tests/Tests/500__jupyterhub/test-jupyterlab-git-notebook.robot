@@ -2,6 +2,7 @@
 Resource         ../../Resources/ODS.robot
 Resource         ../../Resources/Common.robot
 Resource         ../../Resources/Page/ODH/JupyterHub/JupyterHubSpawner.robot
+Resource         ../../Resources/Page/ODH/JupyterHub/JupyterLabLauncher.robot
 Library          DebugLibrary
 Suite Setup      Begin Web Test
 Suite Teardown   End Web Test
@@ -10,13 +11,18 @@ Suite Teardown   End Web Test
 
 
 *** Test Cases ***
-Open ODH Dashboard
+Open RHODS Dashboard
   [Tags]  Sanity
-  Wait for ODH Dashboard to Load
+  Wait for RHODS Dashboard to Load
 
 Can Launch Jupyterhub
   [Tags]  Sanity
-  Launch JupyterHub From ODH Dashboard Dropdown
+  ${version-check} =  Is RHODS Version Greater Or Equal Than  1.4.0
+  IF  ${version-check}==True
+    Launch JupyterHub From RHODS Dashboard Link
+  ELSE
+    Launch JupyterHub From RHODS Dashboard Dropdown
+  END
 
 Can Login to Jupyterhub
   [Tags]  Sanity
@@ -32,28 +38,18 @@ Can Spawn Notebook
 
 Can Launch Python3 Smoke Test Notebook
   [Tags]  Sanity
-
-  Wait for JupyterLab Splash Screen  timeout=30
-
-  Maybe Select Kernel
-  ${is_launcher_selected} =  Run Keyword And Return Status  JupyterLab Launcher Tab Is Selected
-  Run Keyword If  not ${is_launcher_selected}  Open JupyterLab Launcher
-  Launch a new JupyterLab Document
-
-  Close Other JupyterLab Tabs
-
   ##################################################
   # Manual Notebook Input
   ##################################################
   Sleep  5
-  Add and Run JupyterLab Code Cell  !pip install boto3
+  Add and Run JupyterLab Code Cell in Active Notebook  !pip install boto3
   Wait Until JupyterLab Code Cell Is Not Active
   #Get the text of the last output cell
   ${output} =  Get Text  (//div[contains(@class,"jp-OutputArea-output")])[last()]
   Should Not Match  ${output}  ERROR*
 
-  Add and Run JupyterLab Code Cell  import os
-  Add and Run JupyterLab Code Cell  print("Hello World!")
+  Add and Run JupyterLab Code Cell in Active Notebook  import os
+  Add and Run JupyterLab Code Cell in Active Notebook  print("Hello World!")
   Capture Page Screenshot
 
   JupyterLab Code Cell Error Output Should Not Be Visible
@@ -80,5 +76,3 @@ Can Launch Python3 Smoke Test Notebook
   #Get the text of the last output cell
   ${output} =  Get Text  (//div[contains(@class,"jp-OutputArea-output")])[last()]
   Should Not Match  ${output}  ERROR*
-
-  Logout JupyterLab

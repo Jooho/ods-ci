@@ -11,13 +11,18 @@ Suite Teardown   End Web Test
 
 
 *** Test Cases ***
-Open ODH Dashboard
+Open RHODS Dashboard
   [Tags]  Sanity
-  Wait for ODH Dashboard to Load
+  Wait for RHODS Dashboard to Load
 
 Can Launch Jupyterhub
   [Tags]  Sanity
-  Launch JupyterHub From ODH Dashboard Dropdown
+  ${version-check} =  Is RHODS Version Greater Or Equal Than  1.4.0
+  IF  ${version-check}==True
+    Launch JupyterHub From RHODS Dashboard Link
+  ELSE
+    Launch JupyterHub From RHODS Dashboard Dropdown
+  END
 
 Can Login to Jupyterhub
   [Tags]  Sanity
@@ -27,19 +32,13 @@ Can Login to Jupyterhub
   Wait Until Page Contains Element  xpath://span[@id='jupyterhub-logo']
 
 Can Spawn Notebook
-  [Tags]  Sanity
+  [Tags]  Sanity  ODS-902  ODS-904
   Fix Spawner Status
-  &{S3-credentials}  Create Dictionary  AWS_ACCESS_KEY_ID=${S3.AWS_ACCESS_KEY_ID}  AWS_SECRET_ACCESS_KEY=${S3.AWS_SECRET_ACCESS_KEY}
+  &{S3-credentials} =  Create Dictionary  AWS_ACCESS_KEY_ID=${S3.AWS_ACCESS_KEY_ID}  AWS_SECRET_ACCESS_KEY=${S3.AWS_SECRET_ACCESS_KEY}
   Spawn Notebook With Arguments  image=s2i-generic-data-science-notebook  envs=&{S3-credentials}
 
 Can Launch Python3 Smoke Test Notebook
-  [Tags]  Sanity
-  Wait for JupyterLab Splash Screen  timeout=30
-  Maybe Select Kernel
-  ${is_launcher_selected} =  Run Keyword And Return Status  JupyterLab Launcher Tab Is Selected
-  Run Keyword If  not ${is_launcher_selected}  Open JupyterLab Launcher
-  Launch a new JupyterLab Document
-  Close Other JupyterLab Tabs
+  [Tags]  Sanity  ODS-910  ODS-911  ODS-921  ODS-924  ODS-929  ODS-931  ODS-333
   Navigate Home (Root folder) In JupyterLab Sidebar File Browser
   Open With JupyterLab Menu  Git  Clone a Repository
   Input Text  //div[.="Clone a repo"]/../div[contains(@class, "jp-Dialog-body")]//input  https://github.com/lugi0/clustering-notebook
@@ -50,6 +49,7 @@ Can Launch Python3 Smoke Test Notebook
   Click Element  xpath://div[.="Open"]
   Wait Until CCFraud-clustering-S3.ipynb JupyterLab Tab Is Selected
   Close Other JupyterLab Tabs
+  Sleep  5
   Open With JupyterLab Menu  Run  Run All Cells
   Wait Until JupyterLab Code Cell Is Not Active  timeout=300
   JupyterLab Code Cell Error Output Should Not Be Visible

@@ -18,10 +18,10 @@ Suite Teardown   End Web Test
 ${python_dict}  {'classifiers':[${generic-1}, ${minimal-1}], 'clustering':[${generic-2}, ${generic-3}, ${minimal-2}, ${minimal-3}]}
 
 *** Test Cases ***
-Open ODH Dashboard
+Open RHODS Dashboard
   [Tags]  Sanity
-  Login To ODH Dashboard  ${TEST_USER.USERNAME}  ${TEST_USER.PASSWORD}  ${TEST_USER.AUTH_TYPE}
-  Wait for ODH Dashboard to Load
+  Login To RHODS Dashboard  ${TEST_USER.USERNAME}  ${TEST_USER.PASSWORD}  ${TEST_USER.AUTH_TYPE}
+  Wait for RHODS Dashboard to Load
 
 Iterative Testing Classifiers
   [Tags]  Sanity  POLARION-ID-Classifiers
@@ -32,6 +32,7 @@ Iterative Testing Classifiers
 
 Iterative Testing Clustering
   [Tags]  Sanity  POLARION-ID-Clustering
+  ...     ODS-923  ODS-924
   &{DICTIONARY} =  Evaluate  ${python_dict}
   FOR  ${sublist}  IN  @{DICTIONARY}[clustering]
     Run Keyword And Continue On Failure  Iterative Image Test  ${sublist}[0]  ${sublist}[1]  ${sublist}[2]
@@ -40,23 +41,19 @@ Iterative Testing Clustering
 *** Keywords ***
 Iterative Image Test
     [Arguments]  ${image}  ${REPO_URL}  ${NOTEBOOK_TO_RUN}
-    Launch JupyterHub From ODH Dashboard Dropdown
+    ${version-check} =  Is RHODS Version Greater Or Equal Than  1.4.0
+    IF  ${version-check}==True
+      Launch JupyterHub From RHODS Dashboard Link
+    ELSE
+      Launch JupyterHub From RHODS Dashboard Dropdown
+    END
     Login To Jupyterhub  ${TEST_USER.USERNAME}  ${TEST_USER.PASSWORD}  ${TEST_USER.AUTH_TYPE}
     ${authorization_required} =  Is Service Account Authorization Required
     Run Keyword If  ${authorization_required}  Authorize jupyterhub service account
     Fix Spawner Status
     Spawn Notebook With Arguments  image=${image}
-    Wait for JupyterLab Splash Screen  timeout=30
-    Maybe Select Kernel
-    ${is_launcher_selected} =  Run Keyword And Return Status  JupyterLab Launcher Tab Is Selected
-    Run Keyword If  not ${is_launcher_selected}  Open JupyterLab Launcher
-    Launch a new JupyterLab Document
-    Close Other JupyterLab Tabs
-    Sleep  5
     Run Cell And Check Output  print("Hello World!")  Hello World!
-    #Needs to change for RHODS release
-    Run Keyword And Continue On Failure  Run Cell And Check Output  !python --version  Python 3.8.6
-    #Run Cell And Check Output  !python --version  Python 3.8.7
+    Python Version Check
     Capture Page Screenshot
     JupyterLab Code Cell Error Output Should Not Be Visible
     #This ensures all workloads are run even if one (or more) fails

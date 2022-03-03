@@ -1,28 +1,56 @@
 *** Settings ***
 Resource  JupyterLabLauncher.robot
-Library  JupyterLibrary
-Library  String
-Library  Collections
+Resource  ../../LoginPage.robot
+Resource  ../../ODH/ODHDashboard/ODHDashboard.robot
+Resource  LoginJupyterHub.robot
+Resource  JupyterLabSidebar.robot
+Resource  ../../OCPDashboard/InstalledOperators/InstalledOperators.robot
+Library   JupyterLibrary
+Library   String
+Library   Collections
 
 *** Variables ***
 ${JUPYTERHUB_SPAWNER_HEADER_XPATH} =  //div[contains(@class,"jsp-spawner__header__title") and .="Start a notebook server"]
 
 *** Keywords ***
 JupyterHub Spawner Is Visible
-   ${spawner_visible} =  Run Keyword and Return Status  Wait Until Element Is Visible  xpath:${JUPYTERHUB_SPAWNER_HEADER_XPATH}
+   ${spawner_visible} =  Run Keyword and Return Status  Page Should Contain  xpath:${JUPYTERHUB_SPAWNER_HEADER_XPATH}
    [return]  ${spawner_visible}
+
+Wait Until JupyterHub Spawner Is Ready
+   # Container size selector is usually the last element to load in the spawner page
+   # Let's use it to check when the spawner has finished loading.
+   ${version-check} =  Is RHODS Version Greater Or Equal Than  1.5.0
+   IF  ${version-check}==True
+      Wait Until Page Contains Element    xpath://div[contains(concat(' ',normalize-space(@class),' '),' jsp-spawner__size_options__select ')]
+   ELSE
+      Wait Until Page Contains Element    xpath:/html/body/div[1]/form/div/div/div[3]/div[3]/button
+   END
 
 Select Notebook Image
    [Documentation]  Selects a notebook image based on a partial match of ${notebook_image} argument
-   [Arguments]  ${notebook_image}
-   Wait Until Element Is Visible  xpath:/html/body/div[1]/form/div/div/div[2]/div[2]/div[1]
-   Click Element  xpath://input[contains(@id, "${notebook_image}")]
+   [Arguments]    ${notebook_image}
+   ${version-check} =    Is RHODS Version Greater Or Equal Than  1.5.0
+   IF    ${version-check}==True
+      Wait Until Element Is Visible    xpath://div[@class="jsp-spawner__image-options"]
+   ELSE
+      Wait Until Element Is Visible    xpath:/html/body/div[1]/form/div/div/div[2]/div[2]/div[1]
+   END
+   Wait Until Element Is Visible    xpath://input[contains(@id, "${notebook_image}")]
+   Element Should Be Enabled    xpath://input[contains(@id, "${notebook_image}")]
+   Click Element    xpath://input[contains(@id, "${notebook_image}")]
 
 Select Container Size
    [Documentation]  Selects the container size based on the ${container_size} argument
    [Arguments]  ${container_size}
    # Expand List
-   Click Element  xpath:/html/body/div[1]/form/div/div/div[3]/div[3]/button
+   Wait Until Page Contains    Container size   timeout=30   error=Container size selector is not present in JupyterHub Spawner
+   ${version-check} =  Is RHODS Version Greater Or Equal Than  1.5.0
+   IF  ${version-check}==True
+      Click Element  xpath://div[contains(concat(' ',normalize-space(@class),' '),' jsp-spawner__size_options__select ')]
+   ELSE
+      Click Element  xpath:/html/body/div[1]/form/div/div/div[3]/div[3]/button
+   END
    Click Element  xpath://span[.="${container_size}"]/../..
 
 Set Number of required GPUs
@@ -57,7 +85,6 @@ Remove All Spawner Environment Variables
        Remove Spawner Environment Variable   ${env}
    END
 
-
 Remove Spawner Environment Variable
    [Documentation]  If it exists, removes an environment variable based on the ${env_var} argument
    [Arguments]  ${env_var}
@@ -81,13 +108,24 @@ Get Spawner Environment Variable Value
 Spawn Notebook
    [Documentation]  Start the notebook pod spawn and wait ${spawner_timeout} seconds (DEFAULT: 600s)
    [Arguments]  ${spawner_timeout}=600 seconds
-   Click Button  Start server
-   Wait Until Page Contains  Your server is starting up
+   ${version-check} =  Is RHODS Version Greater Or Equal Than  1.5.0
+   IF  ${version-check}==True
+      Click Button  Start Server
+      Wait Until Page Contains  Starting server
+   ELSE
+      Click Button  Start server
+      Wait Until Page Contains  Your server is starting up
+   END
    Wait Until Element is Visible  id:progress-bar
    Wait Until Page Does Not Contain Element  id:progress-bar  ${spawner_timeout}
 
 Has Spawn Failed
-   ${spawn_status} =  Run Keyword and Return Status  Page Should Contain Element  xpath://p[starts-with(., "Spawn failed")]
+   ${version-check} =  Is RHODS Version Greater Or Equal Than  1.5.0
+   IF  ${version-check}==True
+      ${spawn_status} =  Run Keyword and Return Status  Page Should Contain  Spawn failed
+   ELSE
+      ${spawn_status} =  Run Keyword and Return Status  Page Should Contain Element  xpath://p[starts-with(., "Spawn failed")]
+   END
    [Return]  ${spawn_status}
 
 Spawn Notebook With Arguments
@@ -96,21 +134,60 @@ Spawn Notebook With Arguments
    ...              By creating a dictionary beforehand, e.g. &{test-dict}  Create Dictionary  name=robot  password=secret
    [Arguments]  ${retries}=1  ${image}=s2i-generic-data-science-notebook  ${size}=Small  ${spawner_timeout}=600 seconds  &{envs}
    FOR  ${index}  IN RANGE  0  1+${retries}
-      Select Notebook Image  ${image}
-      Select Container Size  ${size}
-      Remove All Spawner Environment Variables
-      FOR  ${key}  ${value}  IN  &{envs}
+      ${spawner_ready} =    Run Keyword and Return Status    Wait Until JupyterHub Spawner Is Ready
+      IF  ${spawner_ready}==True
+         Select Notebook Image  ${image}
+         Select Container Size  ${size}
+         IF  &{envs}
+            Remove All Spawner Environment Variables
+            FOR  ${key}  ${value}  IN  &{envs}[envs]
+               Sleep  1
+               Add Spawner Environment Variable  ${key}  ${value}
+            END
+         END
+         Spawn Notebook
+         Run Keyword And Continue On Failure  Wait Until Page Does Not Contain Element  id:progress-bar  ${spawner_timeout}
+         Wait for JupyterLab Splash Screen  timeout=30
+         Maybe Close Popup
+         ${is_launcher_selected} =  Run Keyword And Return Status  JupyterLab Launcher Tab Is Selected
+         Run Keyword If  not ${is_launcher_selected}  Open JupyterLab Launcher
+         Open With JupyterLab Menu  File  New  Notebook
          Sleep  1
-         Add Spawner Environment Variable  ${key}  ${value}
+         Maybe Close Popup
+         Close Other JupyterLab Tabs
+         Maybe Close Popup
+         Sleep  1
+         Spawned Image Check    ${image}
+         ${spawn_fail} =  Has Spawn Failed
+         Exit For Loop If  ${spawn_fail} == False
+         Click Element  xpath://span[@id='jupyterhub-logo']
+      ELSE
+         Click Element  xpath://span[@id='jupyterhub-logo']
       END
-      Click Button  Start server
-      Wait Until Page Contains  Your server is starting up
-      Wait Until Element is Visible  id:progress-bar
-      Run Keyword And Continue On Failure  Wait Until Page Does Not Contain Element  id:progress-bar  ${spawner_timeout}
-      ${spawn_fail} =  Has Spawn Failed
-      Exit For Loop If  ${spawn_fail} == False
-      Click Element  xpath://span[@id='jupyterhub-logo']
    END
+
+Spawned Image Check
+    [Documentation]    This Keyword checks that the spawned image matches a given image name
+    ...                (Presumably the one the user wanted to spawn)
+    [Arguments]    ${image}
+    Run Cell And Check Output    import os; print(os.environ["JUPYTER_IMAGE"].split("/")[-1].split(":")[0])    ${image}
+    Open With JupyterLab Menu    Edit    Select All Cells
+    Open With JupyterLab Menu    Edit    Delete Cells
+
+Launch JupyterHub Spawner From Dashboard
+  Menu.Navigate To Page    Applications    Enabled
+  ${version-check} =  Is RHODS Version Greater Or Equal Than  1.4.0
+  IF  ${version-check}==True
+    Launch JupyterHub From RHODS Dashboard Link
+  ELSE
+    Launch JupyterHub From RHODS Dashboard Dropdown
+  END
+  Login To Jupyterhub  ${TEST_USER.USERNAME}  ${TEST_USER.PASSWORD}  ${TEST_USER.AUTH_TYPE}
+  ${authorization_required} =  Is Service Account Authorization Required
+  Run Keyword If  ${authorization_required}  Authorize jupyterhub service account
+  Fix Spawner Status
+  Wait Until Page Contains Element  xpath://span[@id='jupyterhub-logo']
+
 
 Get Spawner Progress Message
    [Documentation]  Get the progress message currently displayed
@@ -123,7 +200,7 @@ Get Spawner Event Log
    [Return] @{event_elements}
 
 Server Not Running Is Visible
-   ${SNR_visible} =  Run Keyword and Return Status  Page Should Contain  Server not running
+   ${SNR_visible} =  Run Keyword and Return Status  Wait Until Page Contains    Server not running  timeout=15
    [return]  ${SNR_visible}
 
 Handle Server Not Running
@@ -163,12 +240,18 @@ Fix Spawner Status
       ELSE
          ${JL_visible} =  JupyterLab Is Visible
          IF  ${JL_visible}==True
-            Click Element  xpath://span[@title="/opt/app-root/src"]
-            Launch a new JupyterLab Document
+            Maybe Close Popup
+            Navigate Home (Root folder) In JupyterLab Sidebar File Browser
+            Open With JupyterLab Menu  File  New  Notebook
+            Sleep  1
+            Maybe Close Popup
             Close Other JupyterLab Tabs
-            Add and Run JupyterLab Code Cell  !rm -rf *
+            Add and Run JupyterLab Code Cell in Active Notebook  !rm -rf *
+            Open With JupyterLab Menu  File  Close All Tabs
+            Maybe Close Popup
             Stop JupyterLab Notebook Server
             Handle Start My Server
+            Maybe Handle Server Not Running Page
          END
       END
    END
@@ -176,7 +259,22 @@ Fix Spawner Status
 User Is Allowed
    JupyterHub Spawner is Visible
    Page Should Not Contain  403 : Forbidden
-   Wait Until Page Contains Element  xpath:/html/body/div[1]/form/div/div/div[2]
+   ${spawner_ready} =    Run Keyword and Return Status    Wait Until JupyterHub Spawner Is Ready
+   IF  ${spawner_ready}==False
+      Fail    Spawner page was not ready
+   END
+
+User Is Not Allowed
+   JupyterHub Spawner is Visible
+   Page Should Contain  403 : Forbidden
+
+User Is JupyterHub Admin
+   JupyterHub Spawner is Visible
+   Page Should Contain  Admin
+
+User Is Not JupyterHub Admin
+   JupyterHub Spawner is Visible
+   Page Should Not Contain  Admin
 
 Logout Via Button
    Click Element  xpath://a[@id='logout']
@@ -188,3 +286,31 @@ Login Via Button
    ...  Keyword.
    Click Element  xpath://a[@id='login']
    Wait Until Page Contains  Log in with
+
+Maybe Handle Server Not Running Page
+  ${SNR_visible} =  Server Not Running Is Visible
+  IF  ${SNR_visible}==True
+         Handle Server Not Running
+  END
+
+Fetch Image Description Info
+    [Arguments]  ${img}
+    ${xpath_img_description} =  Set Variable  //input[contains(@id, "${img}")]/../span
+    ${text} =  Get Text  ${xpath_img_description}
+    ${text} =  Fetch From Left  ${text}  ,
+    [Return]  ${text}
+
+Fetch Image Tooltip Info
+    [Arguments]  ${img}
+    ${xpath_img_tooltip} =  Set Variable  //input[contains(@id, "${img}")]/../label/span/*
+    ${xpath_tooltip_items} =  Set Variable  //span[@class='jsp-spawner__image-options__packages-popover__package']
+    @{tmp-list} =  Create List
+    Click Element  ${xpath_img_tooltip}
+    ${libs} =  Get Element Count  ${xpath_tooltip_items}
+    FOR  ${index}  IN RANGE  1  1+${libs}
+        Sleep  0.1s
+        ${item} =  Get Text  ${xpath_tooltip_items}\[${index}]
+        Append To List  ${tmp-list}  ${item}
+    END
+    Click Element  //div[@class='jsp-app__header__title']
+    [Return]  ${tmp-list}

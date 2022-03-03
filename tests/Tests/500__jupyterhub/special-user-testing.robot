@@ -5,10 +5,14 @@ Resource         ../../Resources/Common.robot
 Resource         ../../Resources/Page/ODH/JupyterHub/JupyterHubSpawner.robot
 Library          DebugLibrary
 Library          JupyterLibrary
+Suite Setup      Special User Testing Suite Setup
 Suite Teardown   End Web Test
 
 *** Variables ***
-@{CHARS} =  .  ^  $  *  +  ?  (  )  [  ]  {  }  \\  |  @  ;  <  >
+@{CHARS} =  .  ^  $  *  ?  [  ]  {  }  @
+
+# (  ) |  <  > not working in OSD
+# + and ; disabled for now
 
 *** Test Cases ***
 Test Special Usernames
@@ -16,14 +20,22 @@ Test Special Usernames
     ...     PLACEHOLDER  #Category tags
     ...     ODS-257
     Open Browser  ${ODH_DASHBOARD_URL}  browser=${BROWSER.NAME}  options=${BROWSER.OPTIONS}
-    Login To ODH Dashboard  ${TEST_USER.USERNAME}  ${TEST_USER.PASSWORD}  ${TEST_USER.AUTH_TYPE}
-    Wait for ODH Dashboard to Load
-    Launch JupyterHub From ODH Dashboard Dropdown
+    Login To RHODS Dashboard  ${TEST_USER.USERNAME}  ${TEST_USER.PASSWORD}  ${TEST_USER.AUTH_TYPE}
+    Wait for RHODS Dashboard to Load
+    ${version-check} =  Is RHODS Version Greater Or Equal Than  1.4.0
+    IF  ${version-check}==True
+      Launch JupyterHub From RHODS Dashboard Link
+    ELSE
+      Launch JupyterHub From RHODS Dashboard Dropdown
+    END
     FOR  ${char}  IN  @{CHARS}
-        Login Verify Logout  htpasswd-special${char}  ${TEST_USER.PASSWORD}  htpasswd-provider-qe
+        Login Verify Logout  ldap-special${char}  ${TEST_USER.PASSWORD}  ldap-provider-qe
     END
 
 *** Keywords ***
+Special User Testing Suite Setup
+  Set Library Search Order  SeleniumLibrary
+
 Login Verify Logout
     [Arguments]  ${username}  ${password}  ${auth}
     Login To Jupyterhub  ${username}  ${password}  ${auth}

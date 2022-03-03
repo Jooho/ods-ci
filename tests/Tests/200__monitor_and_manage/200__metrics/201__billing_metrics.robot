@@ -8,22 +8,25 @@ Library        SeleniumLibrary
 Test Setup     Begin Billing Metrics Web Test
 Test Teardown  End Web Billing Metrics Test
 
+
 *** Variables ***
-${METRIC_RHODS_CPU}                 cluster:usage:consumption:rhods:cpu:seconds:rate5m
+${METRIC_RHODS_CPU}                 cluster:usage:consumption:rhods:cpu:seconds:rate1h
+${METRIC_RHODS_CPU_BEFORE_1.5.0}    cluster:usage:consumption:rhods:cpu:seconds:rate5m
 ${METRIC_RHODS_UNDEFINED}           cluster:usage:consumption:rhods:undefined:seconds:rate5m
-@{generic-1}  s2i-generic-data-science-notebook  https://github.com/lugi0/minimal-nb-image-test  minimal-nb-image-test/minimal-nb.ipynb
+
 
 *** Test Cases ***
 Verify OpenShift Monitoring results are correct when running undefined queries
   [Tags]  Smoke  Sanity  ODS-173
-  Run OpenShift Metrics Query  ${METRIC_RHODS_UNDEFINED}
+  Run OpenShift Metrics Query  ${METRIC_RHODS_UNDEFINED}  retry-attempts=1
   Metrics.Verify Query Results Dont Contain Data
+  [Teardown]  SeleniumLibrary.Close All Browsers
 
 Test Billing Metric (notebook cpu usage) on OpenShift Monitoring
   [Tags]  Smoke  Sanity  ODS-175
-  #Skip Test If Previous CPU Usage Is Not Zero
   Run Jupyter Notebook For 5 Minutes
   Verify Previus CPU Usage Is Greater Than Zero
+
 
 *** Keywords ***
 Begin Billing Metrics Web Test
@@ -34,7 +37,12 @@ End Web Billing Metrics Test
   SeleniumLibrary.Close All Browsers
 
 Skip Test If Previous CPU Usage Is Not Zero
-  ${metrics_value} =   Run OpenShift Metrics Query    ${METRIC_RHODS_CPU}
+  ${version-check} =  Is RHODS Version Greater Or Equal Than  1.5.0
+  IF  ${version-check}==True
+      ${metrics_value} =   Run OpenShift Metrics Query    ${METRIC_RHODS_CPU}
+  ELSE
+      ${metrics_value} =   Run OpenShift Metrics Query    ${METRIC_RHODS_CPU_BEFORE_1.5.0}
+  END
   ${metrics_query_results_contain_data} =  Run Keyword And Return Status     Metrics.Verify Query Results Contain Data
   IF  ${metrics_query_results_contain_data}
     Log To Console    Current CPU usage: ${metrics_value}
@@ -42,19 +50,40 @@ Skip Test If Previous CPU Usage Is Not Zero
   END
 
 Run OpenShift Metrics Query
-  [Arguments]  ${query}
+  [Documentation]  Runs a query in the Monitoring section of Open Shift
+  ...              Note: in order to run this keyword OCP_ADMIN_USER.USERNAME needs to
+  ...                 belong to a group with "view" role in OpenShift
+  ...              Example command to assign the role: oc adm policy add-cluster-role-to-group view rhods-admins
+  [Arguments]  ${query}  ${retry-attempts}=10
   Open Browser  ${OCP_CONSOLE_URL}  browser=${BROWSER.NAME}  options=${BROWSER.OPTIONS}
   LoginPage.Login To Openshift  ${OCP_ADMIN_USER.USERNAME}  ${OCP_ADMIN_USER.PASSWORD}  ${OCP_ADMIN_USER.AUTH_TYPE}
-  Menu.Switch To Administrator Perspective
-  Wait Until Page Contains    Status  timeout=20
-  Menu.Navigate To Page   Monitoring  Metrics
+  OCPMenu.Switch To Administrator Perspective
+
+  # In OCP 4.9 metrics are under the Observe menu (it was called Monitoring in 4.8)
+  ${menu_observe_exists} =   Run Keyword and Return Status  Menu.Page Should Contain Menu   Observe
+  IF    ${menu_observe_exists}
+       Menu.Navigate To Page   Observe  Metrics
+  ELSE
+       ${menu_monitoring_exists} =   Run Keyword and Return Status  Menu.Page Should Contain Menu   Monitoring
+       IF    ${menu_monitoring_exists}
+           Menu.Navigate To Page   Monitoring  Metrics
+       ELSE
+           Fail  msg=${OCP_ADMIN_USER.USERNAME} can't see the Observe/Monitoring section in OpenShift Console, please make sure it belongs to a group with "view" role
+       END
+  END
+
   Metrics.Verify Page Loaded
-  Metrics.Run Query  ${query}
+  Metrics.Run Query  ${query}  ${retry-attempts}
   ${result} =   Metrics.Get Query Results
   [Return]  ${result}
 
 Verify Previus CPU Usage Is Greater Than Zero
-  ${metrics_value} =   Run OpenShift Metrics Query    ${METRIC_RHODS_CPU}
+  ${version-check} =  Is RHODS Version Greater Or Equal Than  1.5.0
+  IF  ${version-check}==True
+      ${metrics_value} =   Run OpenShift Metrics Query    ${METRIC_RHODS_CPU}
+  ELSE
+      ${metrics_value} =   Run OpenShift Metrics Query    ${METRIC_RHODS_CPU_BEFORE_1.5.0}
+  END
   Metrics.Verify Query Results Contain Data
   Capture Page Screenshot
   Should Be True  ${metrics_value} > 0
@@ -62,28 +91,25 @@ Verify Previus CPU Usage Is Greater Than Zero
 ## TODO: Add this keyword with the other JupyterHub stuff
 Run Jupyter Notebook For 5 Minutes
   Open Browser  ${ODH_DASHBOARD_URL}  browser=${BROWSER.NAME}  options=${BROWSER.OPTIONS}
-  Login To ODH Dashboard  ${TEST_USER.USERNAME}  ${TEST_USER.PASSWORD}  ${TEST_USER.AUTH_TYPE}
-  Wait for ODH Dashboard to Load
+  Login To RHODS Dashboard  ${TEST_USER.USERNAME}  ${TEST_USER.PASSWORD}  ${TEST_USER.AUTH_TYPE}
+  Wait for RHODS Dashboard to Load
   Iterative Image Test  s2i-generic-data-science-notebook  https://github.com/lugi0/minimal-nb-image-test  minimal-nb-image-test/minimal-nb.ipynb
-
 
 ##TODO: This is a copy of "Iterative Image Test" keyword from image-iteration.robob. We have to refactor the code not to duplicate this method
 Iterative Image Test
   [Arguments]  ${image}  ${REPO_URL}  ${NOTEBOOK_TO_RUN}
-  Launch JupyterHub From ODH Dashboard Dropdown
+  ${version-check} =  Is RHODS Version Greater Or Equal Than  1.4.0
+  IF  ${version-check}==True
+    Launch JupyterHub From RHODS Dashboard Link
+  ELSE
+    Launch JupyterHub From RHODS Dashboard Dropdown
+  END
   Login To Jupyterhub  ${TEST_USER.USERNAME}  ${TEST_USER.PASSWORD}  ${TEST_USER.AUTH_TYPE}
   Page Should Not Contain    403 : Forbidden
   ${authorization_required} =  Is Service Account Authorization Required
   Run Keyword If  ${authorization_required}  Authorize jupyterhub service account
   Fix Spawner Status
   Spawn Notebook With Arguments  image=${image}
-  Wait for JupyterLab Splash Screen  timeout=30
-  Maybe Select Kernel
-  ${is_launcher_selected} =  Run Keyword And Return Status  JupyterLab Launcher Tab Is Selected
-  Run Keyword If  not ${is_launcher_selected}  Open JupyterLab Launcher
-  Launch a new JupyterLab Document
-  Close Other JupyterLab Tabs
-  Sleep  5
   Run Cell And Check Output  print("Hello World!")  Hello World!
   Capture Page Screenshot
   JupyterLab Code Cell Error Output Should Not Be Visible
@@ -94,6 +120,18 @@ Iterative Image Test
   Go To  ${ODH_DASHBOARD_URL}
   Sleep  10
 
-
 CleanUp JupyterHub
+  Open Browser  ${ODH_DASHBOARD_URL}  browser=${BROWSER.NAME}  options=${BROWSER.OPTIONS}
+  Login To RHODS Dashboard  ${TEST_USER.USERNAME}  ${TEST_USER.PASSWORD}  ${TEST_USER.AUTH_TYPE}
+  Wait for RHODS Dashboard to Load
+  ${version-check} =  Is RHODS Version Greater Or Equal Than  1.4.0
+  IF  ${version-check}==True
+    Launch JupyterHub From RHODS Dashboard Link
+  ELSE
+    Launch JupyterHub From RHODS Dashboard Dropdown
+  END
+  Login To Jupyterhub  ${TEST_USER.USERNAME}  ${TEST_USER.PASSWORD}  ${TEST_USER.AUTH_TYPE}
+  Page Should Not Contain    403 : Forbidden
+  ${authorization_required} =  Is Service Account Authorization Required
+  Run Keyword If  ${authorization_required}  Authorize jupyterhub service account
   Common.End Web Test
